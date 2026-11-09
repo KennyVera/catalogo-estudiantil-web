@@ -231,7 +231,12 @@ function FormRegistro({ onSuccess }) {
     } else if (!/^[a-zA-Z0-9._-]+$/.test(userLimpio)) {
       errs.usuario = 'Solo letras, números, puntos y guiones.'
     }
-    if (!form.telefono_whatsapp.trim()) errs.telefono_whatsapp = 'El número de WhatsApp es obligatorio.'
+    const telLimpio = form.telefono_whatsapp.replace(/\D/g, '')
+    if (!telLimpio) {
+      errs.telefono_whatsapp = 'El número de WhatsApp es obligatorio.'
+    } else if (telLimpio.length < 8) {
+      errs.telefono_whatsapp = 'Ingresa un número celular válido (ej: 0991234567).'
+    }
     if (!form.codigo_acceso.trim()) {
       errs.codigo_acceso = 'Define una contraseña.'
     } else if (form.codigo_acceso.trim().length < 4) {
@@ -256,11 +261,21 @@ function FormRegistro({ onSuccess }) {
         return
       }
       const slugGenerado = await generarSlugUnico(form.nombre_tienda.trim())
+      // Normalizar número celular para Ecuador (código estático +593)
+      let celular = form.telefono_whatsapp.replace(/\D/g, '')
+      if (celular.startsWith('593')) {
+        celular = celular.slice(3)
+      }
+      if (celular.startsWith('0')) {
+        celular = celular.slice(1)
+      }
+      const telefonoEcuador = '593' + celular
+
       const payload = {
         nombre_tienda: form.nombre_tienda.trim(),
         usuario: form.usuario.trim().toLowerCase(),
         slug: slugGenerado,
-        telefono_whatsapp: form.telefono_whatsapp.trim().replace(/\s+/g, ''),
+        telefono_whatsapp: telefonoEcuador,
         codigo_acceso: form.codigo_acceso.trim(),
       }
       const { data, error } = await registrarTienda(payload)
@@ -324,16 +339,58 @@ function FormRegistro({ onSuccess }) {
         {fieldErr('usuario')}
       </div>
 
-      {/* 3. WhatsApp */}
+      {/* 3. WhatsApp con código estático +593 para Ecuador */}
       <div style={{ marginBottom: 16 }}>
         <FieldLabel htmlFor="reg-whatsapp">
-          WhatsApp para pedidos &nbsp;<span style={{ textTransform: 'none', fontWeight: 400, fontSize: 11, color: '#94A3B8' }}>(con código de país)</span>
+          WhatsApp para pedidos &nbsp;<span style={{ textTransform: 'none', fontWeight: 400, fontSize: 11, color: '#94A3B8' }}>(Ecuador)</span>
         </FieldLabel>
-        <IconInput
-          id="reg-whatsapp" name="telefono_whatsapp" icon={Phone}
-          value={form.telefono_whatsapp} onChange={handleChange}
-          placeholder="Ej: 593983187219"
-        />
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <div style={{
+            position: 'absolute',
+            left: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            pointerEvents: 'none',
+            zIndex: 1,
+          }}>
+            <Phone size={17} color="#94A3B8" />
+            <span style={{
+              fontSize: 14,
+              fontWeight: 700,
+              color: '#0F766E',
+              paddingRight: 8,
+              borderRight: '1.5px solid #CBD5E1',
+              lineHeight: 1,
+            }}>
+              +593
+            </span>
+          </div>
+          <input
+            id="reg-whatsapp"
+            name="telefono_whatsapp"
+            type="tel"
+            value={form.telefono_whatsapp}
+            onChange={handleChange}
+            placeholder="099 123 4567"
+            className="auth-input"
+            style={{
+              width: '100%',
+              paddingLeft: 88,
+              paddingRight: 14,
+              paddingTop: 11,
+              paddingBottom: 11,
+              border: '1.5px solid #E2E8F0',
+              borderRadius: 12,
+              fontSize: 15,
+              color: '#0F172A',
+              background: '#FFFFFF',
+              boxSizing: 'border-box',
+              outline: 'none',
+              fontFamily: 'inherit',
+            }}
+          />
+        </div>
         {fieldErr('telefono_whatsapp')}
       </div>
 
