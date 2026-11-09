@@ -338,3 +338,23 @@ html, body {
   cursor: pointer;
   touch-action: manipulation;
 }
+
+/* ============================================================
+   INPUTS DE AUTENTICACIÓN (LoginPage)
+   ============================================================ */
+.auth-input {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.auth-input:focus {
+  border-color: #0F766E !important;
+  box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.09) !important;
+  outline: none !important;
+}
+/* Eliminar el fondo azulado del autocompletado del navegador */
+.auth-input:-webkit-autofill,
+.auth-input:-webkit-autofill:hover,
+.auth-input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #FFFFFF inset !important;
+  -webkit-text-fill-color: #0F172A !important;
+  transition: background-color 9999s ease-in-out 0s;
+}
