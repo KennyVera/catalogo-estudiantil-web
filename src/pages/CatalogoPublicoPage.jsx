@@ -12,6 +12,7 @@ import {
   getResumenValoraciones,
   crearValoracion,
 } from '../services/valoracionService'
+import { crearPedidoConItems } from '../services/pedidoService'
 import {
   ShoppingCart,
   Plus,
@@ -356,9 +357,11 @@ function ModalResenas({ producto, resumen = { total: 0, promedio: 0 }, onClose, 
 // ============================================================
 // COMPONENTE: Modal/Drawer de Checkout del Carrito
 // ============================================================
-function ModalCarrito({ tienda, carrito, cambiarCantidad, eliminarDelCarrito, vaciarCarrito, onClose }) {
+function ModalCarrito({ tienda, carrito, cambiarCantidad, eliminarDelCarrito, vaciarCarrito, onClose, onPedidoExitoso }) {
   const [nombreCliente, setNombreCliente] = useState('')
   const [notasEntrega, setNotasEntrega] = useState('')
+  const [errorNombre, setErrorNombre] = useState(null)
+  const [guardandoPedido, setGuardandoPedido] = useState(false)
 
   const subtotal = useMemo(() => {
     return carrito.reduce((acc, it) => acc + it.precio * it.cantidad, 0)
@@ -368,16 +371,43 @@ function ModalCarrito({ tienda, carrito, cambiarCantidad, eliminarDelCarrito, va
     return carrito.reduce((acc, it) => acc + it.cantidad, 0)
   }, [carrito])
 
-  const handleEnviarWhatsapp = () => {
+  const handleEnviarWhatsapp = async () => {
+    const nombreLimpio = nombreCliente.trim()
+    if (!nombreLimpio) {
+      setErrorNombre('El nombre es obligatorio para enviar tu pedido.')
+      return
+    }
+
     if (!tienda?.telefono_whatsapp || carrito.length === 0) return
 
+    setErrorNombre(null)
+    setGuardandoPedido(true)
+
+    // 1. Guardar en Supabase (tabla `pedidos` y bulk en `pedido_items`, disparando trigger de stock)
+    try {
+      const { error: errPedido } = await crearPedidoConItems({
+        tienda_id: tienda.id,
+        nombre_cliente: nombreLimpio,
+        telefono_cliente: notasEntrega.trim() || null,
+        total: subtotal,
+        items: carrito,
+      })
+
+      if (errPedido) {
+        console.error('Error guardando pedido:', errPedido)
+      }
+    } catch (err) {
+      console.warn('Excepción al registrar pedido en Supabase:', err)
+    } finally {
+      setGuardandoPedido(false)
+    }
+
+    // 2. Formatear mensaje para WhatsApp
     const telefonoLimpio = tienda.telefono_whatsapp.replace(/\D/g, '')
 
     let mensaje = `🛒 *Nuevo Pedido - ${tienda.nombre_tienda}*\n`
     mensaje += `━━━━━━━━━━━━━━━━━━━━\n`
-    if (nombreCliente.trim()) {
-      mensaje += `👤 *Cliente:* ${nombreCliente.trim()}\n`
-    }
+    mensaje += `👤 *Cliente:* ${nombreLimpio}\n`
     if (notasEntrega.trim()) {
       mensaje += `📍 *Dirección / Notas:* ${notasEntrega.trim()}\n`
     }
@@ -390,9 +420,18 @@ function ModalCarrito({ tienda, carrito, cambiarCantidad, eliminarDelCarrito, va
 
     mensaje += `━━━━━━━━━━━━━━━━━━━━\n`
     mensaje += `💰 *TOTAL A PAGAR: $${subtotal.toFixed(2)}*\n\n`
-    mensaje += `¿Me confirman la disponibilidad para coordinar la entrega? ¡Gracias!`
+    mensaje += `¿Me confirman la disponibilidad para coordinar la entrega? ¡Muchas gracias!`
 
     const url = `https://wa.me/${telefonoLimpio}?text=${encodeURIComponent(mensaje)}`
+
+    // 3. Limpiar carrito, cerrar modal y refrescar stock
+    vaciarCarrito()
+    onClose()
+    if (onPedidoExitoso) {
+      onPedidoExitoso()
+    }
+
+    // 4. Abrir WhatsApp
     window.open(url, '_blank')
   }
 
@@ -577,33 +616,49 @@ function ModalCarrito({ tienda, carrito, cambiarCantidad, eliminarDelCarrito, va
                 </button>
               </div>
 
-              {/* Campos opcionales del cliente */}
+              {/* Datos del cliente y entrega */}
               <div style={{
                 background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 16, padding: '16px',
                 display: 'flex', flexDirection: 'column', gap: 12,
               }}>
-                <h5 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#334155' }}>
-                  Datos de entrega (opcional)
-                </h5>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h5 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#334155' }}>
+                    Datos de entrega
+                  </h5>
+                  <span style={{ fontSize: 11, color: '#94A3B8' }}>* Campo obligatorio</span>
+                </div>
+
                 <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#64748B', marginBottom: 4 }}>
-                    Tu nombre
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#0F172A', marginBottom: 4 }}>
+                    Tu nombre <span style={{ color: '#EF4444' }}>*</span>
                   </label>
                   <input
                     type="text"
-                    placeholder="Ej: María Pérez"
+                    placeholder="Ej: María Pérez (Obligatorio)"
                     value={nombreCliente}
-                    onChange={(e) => setNombreCliente(e.target.value)}
+                    onChange={(e) => {
+                      setNombreCliente(e.target.value)
+                      if (errorNombre) setErrorNombre(null)
+                    }}
                     style={{
-                      width: '100%', padding: '9px 12px', border: '1px solid #CBD5E1',
-                      borderRadius: 10, fontSize: 13, outline: 'none', background: '#FFFFFF',
+                      width: '100%', padding: '10px 12px',
+                      border: errorNombre ? '1.5px solid #EF4444' : '1px solid #CBD5E1',
+                      borderRadius: 10, fontSize: 13, outline: 'none',
+                      background: errorNombre ? '#FEF2F2' : '#FFFFFF',
                       boxSizing: 'border-box',
                     }}
+                    required
                   />
+                  {errorNombre && (
+                    <span style={{ display: 'block', color: '#EF4444', fontSize: 12, marginTop: 4, fontWeight: 500 }}>
+                      ⚠️ {errorNombre}
+                    </span>
+                  )}
                 </div>
+
                 <div>
                   <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#64748B', marginBottom: 4 }}>
-                    Dirección o notas especiales
+                    Dirección o notas de entrega <span style={{ color: '#94A3B8', fontWeight: 400 }}>(opcional)</span>
                   </label>
                   <input
                     type="text"
@@ -611,7 +666,7 @@ function ModalCarrito({ tienda, carrito, cambiarCantidad, eliminarDelCarrito, va
                     value={notasEntrega}
                     onChange={(e) => setNotasEntrega(e.target.value)}
                     style={{
-                      width: '100%', padding: '9px 12px', border: '1px solid #CBD5E1',
+                      width: '100%', padding: '10px 12px', border: '1px solid #CBD5E1',
                       borderRadius: 10, fontSize: 13, outline: 'none', background: '#FFFFFF',
                       boxSizing: 'border-box',
                     }}
@@ -632,17 +687,19 @@ function ModalCarrito({ tienda, carrito, cambiarCantidad, eliminarDelCarrito, va
 
                 <button
                   type="button"
+                  disabled={guardandoPedido}
                   onClick={handleEnviarWhatsapp}
                   style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                    background: '#25D366', color: '#FFFFFF', border: 'none', borderRadius: 14,
-                    padding: '14px 20px', fontSize: 15, fontWeight: 700, cursor: 'pointer',
+                    background: guardandoPedido ? '#10B981' : '#25D366', color: '#FFFFFF', border: 'none', borderRadius: 14,
+                    padding: '14px 20px', fontSize: 15, fontWeight: 700,
+                    cursor: guardandoPedido ? 'not-allowed' : 'pointer',
                     boxShadow: '0 4px 14px rgba(37, 211, 102, 0.35)',
                     transition: 'transform 0.1s, background 0.15s',
                   }}
                 >
                   <MessageCircle size={20} />
-                  Enviar pedido por WhatsApp
+                  {guardandoPedido ? 'Guardando pedido...' : 'Enviar pedido por WhatsApp'}
                 </button>
               </div>
             </>
@@ -734,6 +791,14 @@ export default function CatalogoPublicoPage() {
 
     cargar()
   }, [slug])
+
+  const recargarProductos = async () => {
+    if (!tienda) return
+    const { data: prodsData } = await getProductosDisponibles(tienda.id)
+    if (prodsData) {
+      setProductos(prodsData)
+    }
+  }
 
   // Filtrado por categoría
   const productosFiltrados = useMemo(() => {
@@ -1110,6 +1175,7 @@ export default function CatalogoPublicoPage() {
           eliminarDelCarrito={eliminarDelCarrito}
           vaciarCarrito={vaciarCarrito}
           onClose={() => setModalCarritoAbierto(false)}
+          onPedidoExitoso={recargarProductos}
         />
       )}
 

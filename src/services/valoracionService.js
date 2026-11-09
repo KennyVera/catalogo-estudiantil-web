@@ -104,3 +104,64 @@ export async function crearValoracion({ producto_id, nombre_cliente, calificacio
     return { data: null, error: err }
   }
 }
+
+
+/**
+ * Obtiene todas las valoraciones de los productos pertenecientes a una tienda,
+ * haciendo JOIN con la tabla productos.
+ * @param {string|number} tiendaId - ID de la tienda
+ */
+export async function getValoracionesPorTienda(tiendaId) {
+  try {
+    const { data: prods, error: prodsErr } = await supabase
+      .from('productos')
+      .select('id, nombre, imagen_url')
+      .eq('tienda_id', tiendaId)
+
+    if (prodsErr || !prods || prods.length === 0) {
+      return { data: [], error: prodsErr }
+    }
+
+    const prodMap = {}
+    prods.forEach((p) => { prodMap[p.id] = p })
+    const prodIds = prods.map((p) => p.id)
+
+    // Consulta con JOIN relacional a productos
+    const { data: vals, error: valsErr } = await supabase
+      .from('valoraciones')
+      .select('*, productos(id, nombre, imagen_url)')
+      .in('producto_id', prodIds)
+      .order('created_at', { ascending: false })
+
+    if (valsErr) {
+      // Fallback si la relación automática de PostgREST diera error por alias
+      const { data: fallbackVals, error: fallbackErr } = await supabase
+        .from('valoraciones')
+        .select('*')
+        .in('producto_id', prodIds)
+        .order('created_at', { ascending: false })
+
+      if (fallbackErr) {
+        console.warn('Error al obtener valoraciones por tienda:', fallbackErr)
+        return { data: [], error: fallbackErr }
+      }
+
+      const fallbackCompletas = (fallbackVals || []).map((v) => ({
+        ...v,
+        productos: prodMap[v.producto_id] || { id: v.producto_id, nombre: 'Producto', imagen_url: '' },
+      }))
+
+      return { data: fallbackCompletas, error: null }
+    }
+
+    const completas = (vals || []).map((v) => ({
+      ...v,
+      productos: v.productos || prodMap[v.producto_id] || { id: v.producto_id, nombre: 'Producto', imagen_url: '' },
+    }))
+
+    return { data: completas, error: null }
+  } catch (err) {
+    console.error('Excepción en getValoracionesPorTienda:', err)
+    return { data: [], error: err }
+  }
+}

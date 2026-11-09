@@ -448,3 +448,138 @@ html, body {
 .rating-star-btn:hover {
   transform: scale(1.15);
 }
+
+/* ============================================================
+   TABS Y SELECTORES DEL PANEL ADMINISTRATIVO
+   ============================================================ */
+.admin-tabs-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.admin-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.select-estado-pendiente {
+  background-color: #FEF3C7 !important;
+  color: #92400E !important;
+  border: 1px solid #FDE68A !important;
+}
+
+.select-estado-pagado {
+  background-color: #ECFDF5 !important;
+  color: #065F46 !important;
+  border: 1px solid #A7F3D0 !important;
+}
+
+.select-estado-cancelado {
+  background-color: #FEE2E2 !important;
+  color: #991B1B !important;
+  border: 1px solid #FECACA !important;
+}
+
+/* ============================================================
+   ACORDEÓN DE VALORACIONES (AdminPage)
+   ============================================================ */
+@media (max-width: 640px) {
+  .admin-accordion-content {
+    flex-direction: column !important;
+    gap: 14px !important;
+  }
+}
+
+/* ============================================================
+   BOTÓN VER ÍTEMS DE PEDIDO (Elegante y Moderno)
+   ============================================================ */
+.btn-ver-items {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 6px 14px;
+  background-color: #F0FDFA;
+  color: #0F766E;
+  border: 1px solid #CCFBF1;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(15, 118, 110, 0.05);
+  font-family: inherit;
+}
+
+.btn-ver-items:hover {
+  background-color: #CCFBF1;
+  color: #115E59;
+  border-color: #99F6E4;
+  box-shadow: 0 3px 8px rgba(15, 118, 110, 0.12);
+  transform: translateY(-1px);
+}
+
+.btn-ver-items:active {
+  transform: translateY(0);
+  background-color: #99F6E4;
+}
+
+.btn-ver-items-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  background-color: #CCFBF1;
+  color: #0F766E;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.btn-ver-items:hover .btn-ver-items-count {
+  background-color: #0F766E;
+  color: #FFFFFF;
+}
+
+/* ============================================================
+   UTILIDADES DE SCROLL Y CONTENEDORES (Tailwind-like)
+   ============================================================ */
+.max-h-64 {
+  max-height: 16rem !important;
+}
+
+.max-h-\[500px\] {
+  max-height: 500px !important;
+}
+
+.overflow-y-auto {
+  overflow-y: auto !important;
+}
+
+.pr-2 {
+  padding-right: 0.5rem !important;
+}
+
+.sticky {
+  position: sticky !important;
+}
+
+.top-0 {
+  top: 0 !important;
+}
+
+.bg-white {
+  background-color: #FFFFFF !important;
+}
+
+.z-10 {
+  z-index: 10 !important;
+}
+
+

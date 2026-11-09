@@ -3,7 +3,7 @@
 // Panel de gestión: Rediseño visual esmeralda con foto de perfil,
 // dropdown de Administrador, gestión de stock y modales.
 // ============================================================
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -25,10 +25,19 @@ import {
   actualizarFotoPerfil,
   actualizarPassword,
 } from '../services/tiendaService'
+import {
+  getPedidosPorTienda,
+  actualizarEstadoPedido,
+} from '../services/pedidoService'
+import {
+  getValoracionesPorTienda,
+} from '../services/valoracionService'
+import { supabase } from '../supabaseClient'
 
 import {
   Store,
   Bell,
+  BellOff,
   LayoutGrid,
   Package,
   Box,
@@ -47,6 +56,17 @@ import {
   Link2,
   X,
   Camera,
+  ClipboardList,
+  TrendingUp,
+  DollarSign,
+  Calendar,
+  Star,
+  RefreshCw,
+  ShoppingBag,
+  Clock,
+  Phone,
+  AlertCircle,
+  ArrowRight,
 } from 'lucide-react'
 
 const PRODUCTO_INICIAL = {
@@ -59,6 +79,32 @@ const PRODUCTO_INICIAL = {
   imagen_url: '',
 }
 
+function formatearFechaHora(isoDate) {
+  if (!isoDate) return '—'
+  try {
+    const d = new Date(isoDate)
+    return d.toLocaleString('es-ES', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return isoDate
+  }
+}
+
+function getEstadoStyle(estado) {
+  if (estado === 'pagado') {
+    return { background: '#ECFDF5', color: '#065F46', border: '1px solid #A7F3D0' }
+  }
+  if (estado === 'cancelado') {
+    return { background: '#FEE2E2', color: '#991B1B', border: '1px solid #FECACA' }
+  }
+  return { background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' }
+}
+
 export default function AdminPage() {
   const { tienda, actualizarDatosTienda, cerrarSesion } = useAuth()
   const navigate = useNavigate()
@@ -66,9 +112,11 @@ export default function AdminPage() {
   const fileInputRef = useRef(null)
   const avatarInputRef = useRef(null)
   const profileMenuRef = useRef(null)
+  const notifMenuRef = useRef(null)
 
   // --- Estados generales ---
   const [menuPerfilAbierto, setMenuPerfilAbierto] = useState(false)
+  const [menuNotificacionesAbierto, setMenuNotificacionesAbierto] = useState(false)
   const [subiendoAvatar, setSubiendoAvatar] = useState(false)
 
   // --- Modal cambiar contraseña ---
@@ -105,6 +153,24 @@ export default function AdminPage() {
   const [guardandoProd, setGuardandoProd] = useState(false)
   const [formAbierto, setFormAbierto] = useState(false)
 
+  // --- Pestaña activa del Panel ---
+  const [tabActiva, setTabActiva] = useState('inventario') // 'inventario' | 'pedidos' | 'finanzas' | 'valoraciones'
+
+  // --- Pedidos ---
+  const [pedidos, setPedidos] = useState([])
+  const [cargandoPedidos, setCargandoPedidos] = useState(false)
+  const [errorPedidos, setErrorPedidos] = useState(null)
+  const [filtroEstadoPedido, setFiltroEstadoPedido] = useState('todos')
+  const [busquedaPedido, setBusquedaPedido] = useState('')
+  const [pedidoDetalleModal, setPedidoDetalleModal] = useState(null)
+  const [actualizandoEstadoId, setActualizandoEstadoId] = useState(null)
+
+  // --- Valoraciones ---
+  const [valoraciones, setValoraciones] = useState([])
+  const [cargandoValoraciones, setCargandoValoraciones] = useState(false)
+  const [errorValoraciones, setErrorValoraciones] = useState(null)
+  const [productosValoracionesExpandidos, setProductosValoracionesExpandidos] = useState({})
+
   // --- Modal compartir ---
   const [modalCompartir, setModalCompartir] = useState(false)
   const [copiado, setCopiado] = useState(false)
@@ -114,12 +180,15 @@ export default function AdminPage() {
   const linkFacebookShare = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(linkPublico)}`
 
   // =====================================================
-  // Cierre de menú al hacer clic fuera
+  // Cierre de menús flotantes al hacer clic fuera
   // =====================================================
   useEffect(() => {
     function handleClickOutside(event) {
       if (profileMenuRef.current && !profileMenuRef.current.contains(event.target)) {
         setMenuPerfilAbierto(false)
+      }
+      if (notifMenuRef.current && !notifMenuRef.current.contains(event.target)) {
+        setMenuNotificacionesAbierto(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -149,10 +218,173 @@ export default function AdminPage() {
     setProductos(data || [])
   }, [tienda?.id])
 
+  const cargarPedidos = useCallback(async () => {
+    if (!tienda?.id) return
+    setCargandoPedidos(true)
+    setErrorPedidos(null)
+    const { data, error } = await getPedidosPorTienda(tienda.id)
+    setCargandoPedidos(false)
+    if (error) { setErrorPedidos(error.message); return }
+    setPedidos(data || [])
+  }, [tienda?.id])
+
+  const cargarValoraciones = useCallback(async () => {
+    if (!tienda?.id) return
+    setCargandoValoraciones(true)
+    setErrorValoraciones(null)
+    const { data, error } = await getValoracionesPorTienda(tienda.id)
+    setCargandoValoraciones(false)
+    if (error) { setErrorValoraciones(error.message); return }
+    setValoraciones(data || [])
+  }, [tienda?.id])
+
   useEffect(() => {
     cargarCategorias()
     cargarProductos()
-  }, [cargarCategorias, cargarProductos])
+    cargarPedidos()
+    cargarValoraciones()
+  }, [cargarCategorias, cargarProductos, cargarPedidos, cargarValoraciones])
+
+  // Suscripción en tiempo real a la tabla `pedidos` para notificaciones instantáneas
+  useEffect(() => {
+    if (!tienda?.id) return
+    const channel = supabase
+      .channel(`pedidos-admin-live-${tienda.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pedidos', filter: `tienda_id=eq.${tienda.id}` },
+        () => {
+          cargarPedidos()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [tienda?.id, cargarPedidos])
+
+  // Cambio de estado de un pedido (trigger restaura stock si es 'cancelado')
+  const handleCambiarEstadoPedido = async (pedidoId, nuevoEstado) => {
+    setActualizandoEstadoId(pedidoId)
+    const { error } = await actualizarEstadoPedido(pedidoId, nuevoEstado)
+    setActualizandoEstadoId(null)
+
+    if (error) {
+      alert('Error al actualizar estado del pedido: ' + error.message)
+      return
+    }
+
+    setPedidos((prev) =>
+      prev.map((p) => (p.id === pedidoId ? { ...p, estado: nuevoEstado } : p))
+    )
+
+    if (pedidoDetalleModal?.id === pedidoId) {
+      setPedidoDetalleModal((prev) => ({ ...prev, estado: nuevoEstado }))
+    }
+
+    // Si se cancela, el trigger en BD devuelve el stock a productos, así que recargamos productos
+    if (nuevoEstado === 'cancelado') {
+      cargarProductos()
+    }
+  }
+
+  // --- Reportes Financieros (estrictamente pedidos con estado = 'pagado') ---
+  const pedidosPagados = useMemo(() => {
+    return pedidos.filter((p) => p.estado === 'pagado')
+  }, [pedidos])
+
+  const ingresosReportes = useMemo(() => {
+    const ahora = new Date()
+    const hace7Dias = new Date(ahora.getTime() - 7 * 24 * 60 * 60 * 1000)
+
+    const semana = pedidosPagados
+      .filter((p) => new Date(p.created_at) >= hace7Dias)
+      .reduce((sum, p) => sum + Number(p.total || 0), 0)
+
+    const mes = pedidosPagados
+      .filter((p) => {
+        const d = new Date(p.created_at)
+        return d.getMonth() === ahora.getMonth() && d.getFullYear() === ahora.getFullYear()
+      })
+      .reduce((sum, p) => sum + Number(p.total || 0), 0)
+
+    const anio = pedidosPagados
+      .filter((p) => new Date(p.created_at).getFullYear() === ahora.getFullYear())
+      .reduce((sum, p) => sum + Number(p.total || 0), 0)
+
+    const historico = pedidosPagados.reduce((sum, p) => sum + Number(p.total || 0), 0)
+    const ticketPromedio = pedidosPagados.length > 0 ? historico / pedidosPagados.length : 0
+
+    return { semana, mes, anio, historico, ticketPromedio }
+  }, [pedidosPagados])
+
+  // Pedidos pendientes para notificaciones
+  const pedidosPendientes = useMemo(() => {
+    return pedidos.filter((p) => p.estado === 'pendiente')
+  }, [pedidos])
+
+  const pedidosPendientesCount = pedidosPendientes.length
+
+  // Promedio general de valoraciones
+  const promedioValoraciones = useMemo(() => {
+    if (valoraciones.length === 0) return 0
+    const suma = valoraciones.reduce((sum, v) => sum + Number(v.calificacion || 0), 0)
+    return Number((suma / valoraciones.length).toFixed(1))
+  }, [valoraciones])
+
+  // Agrupar valoraciones por producto y calcular promedio real individual
+  const productosConValoraciones = useMemo(() => {
+    const mapa = {}
+
+    for (const v of valoraciones) {
+      const prodInfo = v.productos || v.producto || {}
+      const prodId = v.producto_id || prodInfo.id
+      if (!prodId) continue
+
+      if (!mapa[prodId]) {
+        mapa[prodId] = {
+          id: prodId,
+          nombre: prodInfo.nombre || 'Producto sin nombre',
+          imagen_url: prodInfo.imagen_url || '',
+          valoraciones: [],
+          sumaCalificaciones: 0,
+        }
+      }
+
+      mapa[prodId].valoraciones.push(v)
+      mapa[prodId].sumaCalificaciones += Number(v.calificacion || 0)
+    }
+
+    return Object.values(mapa)
+      .map((item) => {
+        const cantidad = item.valoraciones.length
+        const promedio = cantidad > 0 ? Number((item.sumaCalificaciones / cantidad).toFixed(1)) : 0
+        return {
+          ...item,
+          cantidad,
+          promedio,
+        }
+      })
+      .sort((a, b) => b.cantidad - a.cantidad)
+  }, [valoraciones])
+
+  const toggleExpandirProducto = (prodId) => {
+    setProductosValoracionesExpandidos((prev) => ({
+      ...prev,
+      [prodId]: !prev[prodId],
+    }))
+  }
+
+  // Pedidos filtrados por estado y búsqueda
+  const pedidosFiltradosFinal = useMemo(() => {
+    return pedidos.filter((p) => {
+      const coincideEstado = filtroEstadoPedido === 'todos' || p.estado === filtroEstadoPedido
+      const coincideBusqueda = !busquedaPedido.trim() ||
+        p.nombre_cliente?.toLowerCase().includes(busquedaPedido.trim().toLowerCase())
+      return coincideEstado && coincideBusqueda
+    })
+  }, [pedidos, filtroEstadoPedido, busquedaPedido])
 
   // =====================================================
   // Copiar enlace al portapapeles
@@ -470,10 +702,105 @@ export default function AdminPage() {
 
           {/* Acciones Derecha (Notificaciones + Perfil) */}
           <div style={styles.navRight}>
-            {/* Campana de Notificaciones */}
-            <div style={styles.bellButton} title="Notificaciones">
-              <Bell size={20} color="#64748B" />
-              <span style={styles.bellDot} />
+            {/* Campana de Notificaciones con Menú Desplegable */}
+            <div ref={notifMenuRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                style={styles.bellButton}
+                onClick={() => setMenuNotificacionesAbierto((v) => !v)}
+                title={pedidosPendientes.length > 0 ? `${pedidosPendientes.length} pedidos pendientes` : 'Sin notificaciones pendientes'}
+                aria-label="Notificaciones"
+              >
+                <Bell size={19} color={pedidosPendientes.length > 0 ? '#0F766E' : '#64748B'} />
+                {pedidosPendientes.length > 0 && (
+                  <span style={styles.bellDot} />
+                )}
+              </button>
+
+              {/* Popover / Menú flotante de Notificaciones */}
+              {menuNotificacionesAbierto && (
+                <div style={styles.notifDropdown}>
+                  {/* Encabezado */}
+                  <div style={styles.notifHeader}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Bell size={16} color="#0F766E" />
+                      <span style={{ fontWeight: '700', fontSize: 14, color: '#0F172A' }}>Notificaciones</span>
+                    </div>
+                    {pedidosPendientes.length > 0 ? (
+                      <span style={styles.notifBadge}>
+                        {pedidosPendientes.length} {pedidosPendientes.length === 1 ? 'nueva' : 'nuevas'}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 11, color: '#94A3B8' }}>Al día</span>
+                    )}
+                  </div>
+
+                  {/* Lista de Notificaciones de Pedidos */}
+                  <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                    {pedidosPendientes.length === 0 ? (
+                      <div style={styles.notifVacio}>
+                        <div style={styles.notifVacioIcon}>
+                          <BellOff size={22} color="#94A3B8" />
+                        </div>
+                        <p style={{ margin: '0 0 2px', fontSize: 13, fontWeight: '600', color: '#334155' }}>
+                          No tienes notificaciones nuevas
+                        </p>
+                        <span style={{ fontSize: 11, color: '#94A3B8' }}>
+                          Todos los pedidos están atendidos
+                        </span>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        {pedidosPendientes.map((ped) => (
+                          <button
+                            key={ped.id}
+                            type="button"
+                            onClick={() => {
+                              setTabActiva('pedidos')
+                              setPedidoDetalleModal(ped)
+                              setMenuNotificacionesAbierto(false)
+                            }}
+                            style={styles.notifItem}
+                          >
+                            <div style={styles.notifItemIcon}>
+                              <ShoppingBag size={15} color="#D97706" />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                              <p style={{ margin: 0, fontSize: 13, color: '#0F172A', lineHeight: 1.3 }}>
+                                Nuevo pedido de <strong>{ped.nombre_cliente}</strong>
+                              </p>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                                <span style={{ fontSize: 13, fontWeight: '800', color: '#0F766E' }}>
+                                  ${Number(ped.total || 0).toFixed(2)}
+                                </span>
+                                <span style={{ fontSize: 11, color: '#94A3B8' }}>•</span>
+                                <span style={{ fontSize: 11, color: '#64748B' }}>
+                                  {formatearFechaHora(ped.created_at)}
+                                </span>
+                              </div>
+                            </div>
+                            <ArrowRight size={14} color="#94A3B8" style={{ flexShrink: 0, marginLeft: 4 }} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Pie del Menú */}
+                  <div style={styles.notifFooter}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTabActiva('pedidos')
+                        setMenuNotificacionesAbierto(false)
+                      }}
+                      style={styles.notifVerTodosBtn}
+                    >
+                      Ver todos los pedidos en el historial →
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div style={styles.navDivider} />
@@ -643,6 +970,62 @@ export default function AdminPage() {
         </div>
 
         {/* ================================================================
+            BARRA DE PESTAÑAS (TABS DEL PANEL ADMINISTRATIVO)
+        ================================================================ */}
+        <div className="admin-tabs-scroll" style={styles.tabsContainer}>
+          <button
+            type="button"
+            onClick={() => setTabActiva('inventario')}
+            style={tabActiva === 'inventario' ? styles.tabNavBtnActivo : styles.tabNavBtn}
+          >
+            <Package size={17} />
+            <span>Inventario y Categorías</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTabActiva('pedidos')}
+            style={tabActiva === 'pedidos' ? styles.tabNavBtnActivo : styles.tabNavBtn}
+          >
+            <ClipboardList size={17} />
+            <span>Historial de Pedidos</span>
+            {pedidosPendientesCount > 0 && (
+              <span style={styles.badgeTabPendiente}>
+                {pedidosPendientesCount}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTabActiva('finanzas')}
+            style={tabActiva === 'finanzas' ? styles.tabNavBtnActivo : styles.tabNavBtn}
+          >
+            <TrendingUp size={17} />
+            <span>Reportes Financieros</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTabActiva('valoraciones')}
+            style={tabActiva === 'valoraciones' ? styles.tabNavBtnActivo : styles.tabNavBtn}
+          >
+            <Star size={17} />
+            <span>Valoraciones</span>
+            {valoraciones.length > 0 && (
+              <span style={styles.badgeTabNeutral}>
+                {valoraciones.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* ================================================================
+            PESTAÑA 1: INVENTARIO Y CATEGORÍAS
+        ================================================================ */}
+        {tabActiva === 'inventario' && (
+          <>
+        {/* ================================================================
             3. SECCIÓN CATEGORÍAS
         ================================================================ */}
         <section style={styles.cardSection} className="section-card-responsive">
@@ -680,7 +1063,15 @@ export default function AdminPage() {
 
           {/* Listado de categorías */}
           {categorias.length > 0 && (
-            <div style={styles.listaCategorias}>
+            <div
+              className="max-h-64 overflow-y-auto pr-2"
+              style={{
+                ...styles.listaCategorias,
+                maxHeight: '16rem',
+                overflowY: 'auto',
+                paddingRight: '8px',
+              }}
+            >
               {categorias.map((cat) => {
                 const enEdicion = categoriaEnEdicionId === cat.id
 
@@ -934,11 +1325,28 @@ export default function AdminPage() {
             </p>
           )}
 
-          {/* TABLA DE PRODUCTOS (DESKTOP) */}
+          {/* TABLA DE PRODUCTOS */}
           {productosFiltrados.length > 0 && (
-            <div className="desktop-only" style={{ overflowX: 'auto', marginTop: 12 }}>
+            <div
+              className="max-h-[500px] overflow-y-auto pr-2"
+              style={{
+                overflowX: 'auto',
+                overflowY: 'auto',
+                maxHeight: '500px',
+                paddingRight: '8px',
+                marginTop: 12,
+              }}
+            >
               <table style={styles.table}>
-                <thead>
+                <thead
+                  className="sticky top-0 bg-white z-10"
+                  style={{
+                    position: 'sticky',
+                    top: 0,
+                    backgroundColor: '#FFFFFF',
+                    zIndex: 10,
+                  }}
+                >
                   <tr>
                     <th style={styles.th}>Imagen</th>
                     <th style={styles.th}>Producto</th>
@@ -1069,112 +1477,616 @@ export default function AdminPage() {
               </table>
             </div>
           )}
+        </section>
+        </>
+        )}
 
-          {/* VISTA MÓVIL: TARJETAS INDIVIDUALES DE PRODUCTOS (MOBILE) */}
-          {productosFiltrados.length > 0 && (
-            <div className="mobile-only mobile-cards-container">
-              {productosFiltrados.map((prod) => {
-                const catNombre = categorias.find((c) => c.id === prod.categoria_id)?.nombre || '—'
-                const stockActual = prod.stock ?? 0
-                const estaAgotado = stockActual <= 0
+        {/* ================================================================
+            PESTAÑA 2: HISTORIAL DE PEDIDOS
+        ================================================================ */}
+        {tabActiva === 'pedidos' && (
+          <section style={styles.cardSection} className="section-card-responsive">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={styles.gridIconBox}>
+                  <ClipboardList size={20} color="#059669" />
+                </div>
+                <div>
+                  <h2 style={styles.sectionTitle}>Historial de Pedidos</h2>
+                  <p style={{ margin: 0, fontSize: 13, color: '#64748B' }}>
+                    Gestiona los pedidos de tus clientes y actualiza su estado
+                  </p>
+                </div>
+              </div>
 
-                return (
-                  <div key={prod.id} className="mobile-product-card">
-                    {/* Encabezado: Foto + Nombre + Categoría + Estado */}
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                      {prod.imagen_url ? (
-                        <img
-                          src={prod.imagen_url}
-                          alt={prod.nombre}
-                          className="mobile-product-thumb"
-                          onError={(e) => { e.currentTarget.style.display = 'none' }}
-                        />
-                      ) : (
-                        <div className="mobile-product-thumb-placeholder">📷</div>
-                      )}
+              <button
+                type="button"
+                onClick={cargarPedidos}
+                style={styles.btnSecundario}
+                title="Actualizar listado de pedidos"
+              >
+                <RefreshCw size={15} />
+                <span>Actualizar</span>
+              </button>
+            </div>
 
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                          <h4 className="mobile-product-name">{prod.nombre}</h4>
-                          <span style={prod.disponible ? styles.estadoActivo : styles.estadoOculto}>
-                            {prod.disponible ? '● Activo' : '○ Oculto'}
+            {/* Filtros de estado y buscador */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {[
+                  { key: 'todos', label: 'Todos', count: pedidos.length },
+                  { key: 'pendiente', label: 'Pendientes', count: pedidos.filter(p => p.estado === 'pendiente').length },
+                  { key: 'pagado', label: 'Pagados', count: pedidos.filter(p => p.estado === 'pagado').length },
+                  { key: 'cancelado', label: 'Cancelados', count: pedidos.filter(p => p.estado === 'cancelado').length },
+                ].map((f) => (
+                  <button
+                    key={f.key}
+                    type="button"
+                    onClick={() => setFiltroEstadoPedido(f.key)}
+                    style={filtroEstadoPedido === f.key ? styles.filtroChipActivo : styles.filtroChip}
+                  >
+                    <span>{f.label}</span>
+                    <span style={{ fontSize: 11, opacity: 0.85 }}>({f.count})</span>
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ position: 'relative', minWidth: 220 }}>
+                <input
+                  type="text"
+                  placeholder="Buscar por cliente..."
+                  value={busquedaPedido}
+                  onChange={(e) => setBusquedaPedido(e.target.value)}
+                  style={styles.inputBusquedaSimple}
+                />
+              </div>
+            </div>
+
+            {cargandoPedidos && <p style={styles.hintTxt}>Cargando pedidos de la tienda...</p>}
+            {errorPedidos && <p style={styles.errorTxt}>Error al cargar pedidos: {errorPedidos}</p>}
+
+            {!cargandoPedidos && pedidosFiltradosFinal.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '40px 16px', background: '#F8FAFC', borderRadius: 16, border: '1px dashed #CBD5E1' }}>
+                <ClipboardList size={36} color="#94A3B8" style={{ margin: '0 auto 10px' }} />
+                <h4 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: '#0F172A' }}>
+                  No se encontraron pedidos
+                </h4>
+                <p style={{ margin: 0, fontSize: 13, color: '#64748B' }}>
+                  {filtroEstadoPedido !== 'todos' || busquedaPedido
+                    ? 'No hay pedidos que coincidan con el filtro actual.'
+                    : 'Cuando tus clientes hagan pedidos por el catálogo, aparecerán aquí.'}
+                </p>
+              </div>
+            )}
+
+            {/* TABLA DESKTOP */}
+            {pedidosFiltradosFinal.length > 0 && (
+              <div className="desktop-only" style={{ overflowX: 'auto' }}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>Cliente</th>
+                      <th style={styles.th}>Fecha</th>
+                      <th style={styles.th}>Total</th>
+                      <th style={styles.th}>Estado</th>
+                      <th style={{ ...styles.th, textAlign: 'center' }}>Detalles</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pedidosFiltradosFinal.map((ped) => (
+                      <tr key={ped.id} style={styles.tr}>
+                        <td style={styles.td}>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <strong style={{ color: '#0F172A', fontSize: 14 }}>{ped.nombre_cliente}</strong>
+                            {ped.telefono_cliente && (
+                              <span style={{ fontSize: 12, color: '#64748B' }}>
+                                {ped.telefono_cliente}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td style={styles.td}>
+                          <span style={{ fontSize: 13, color: '#475569' }}>
+                            {formatearFechaHora(ped.created_at)}
                           </span>
-                        </div>
-                        <span style={styles.categoryBadge}>{catNombre}</span>
-                        {prod.descripcion && (
-                          <p className="mobile-product-desc">{prod.descripcion}</p>
+                        </td>
+                        <td style={styles.td}>
+                          <strong style={{ fontSize: 16, color: '#0F766E' }}>
+                            ${Number(ped.total || 0).toFixed(2)}
+                          </strong>
+                        </td>
+                        <td style={styles.td}>
+                          <select
+                            value={ped.estado}
+                            disabled={actualizandoEstadoId === ped.id}
+                            onChange={(e) => handleCambiarEstadoPedido(ped.id, e.target.value)}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: 20,
+                              fontWeight: '700',
+                              fontSize: 12,
+                              cursor: 'pointer',
+                              outline: 'none',
+                              ...getEstadoStyle(ped.estado),
+                            }}
+                          >
+                            <option value="pendiente">⏳ Pendiente</option>
+                            <option value="pagado">✓ Pagado</option>
+                            <option value="cancelado">✕ Cancelado</option>
+                          </select>
+                        </td>
+                        <td style={{ ...styles.td, textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => setPedidoDetalleModal(ped)}
+                            className="btn-ver-items"
+                            title="Ver detalles e ítems del pedido"
+                          >
+                            <Eye size={15} strokeWidth={2.2} />
+                            <span>Ver ítems</span>
+                            <span className="btn-ver-items-count">
+                              {ped.pedido_items?.length || 0}
+                            </span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* TARJETAS MOBILE */}
+            {pedidosFiltradosFinal.length > 0 && (
+              <div className="mobile-only mobile-cards-container">
+                {pedidosFiltradosFinal.map((ped) => (
+                  <div key={ped.id} className="mobile-product-card" style={{ gap: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <h4 className="mobile-product-name">{ped.nombre_cliente}</h4>
+                        <span style={{ fontSize: 12, color: '#64748B' }}>{formatearFechaHora(ped.created_at)}</span>
+                        {ped.telefono_cliente && (
+                          <p style={{ margin: '3px 0 0', fontSize: 12, color: '#475569' }}>
+                            {ped.telefono_cliente}
+                          </p>
                         )}
                       </div>
+                      <strong style={{ fontSize: 18, color: '#0F766E' }}>
+                        ${Number(ped.total || 0).toFixed(2)}
+                      </strong>
                     </div>
 
-                    {/* Fila de Precio y Control de Stock grande para toque con el pulgar */}
-                    <div className="mobile-stock-row">
-                      <div>
-                        <span style={{ fontSize: 11, color: '#64748B', display: 'block', fontWeight: '600' }}>PRECIO:</span>
-                        <strong className="mobile-product-price">${Number(prod.precio).toFixed(2)}</strong>
-                      </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTop: '1px solid #F1F5F9' }}>
+                      <select
+                        value={ped.estado}
+                        disabled={actualizandoEstadoId === ped.id}
+                        onChange={(e) => handleCambiarEstadoPedido(ped.id, e.target.value)}
+                        style={{
+                          padding: '6px 10px',
+                          borderRadius: 20,
+                          fontWeight: '700',
+                          fontSize: 12,
+                          cursor: 'pointer',
+                          outline: 'none',
+                          ...getEstadoStyle(ped.estado),
+                        }}
+                      >
+                        <option value="pendiente">⏳ Pendiente</option>
+                        <option value="pagado">✓ Pagado</option>
+                        <option value="cancelado">✕ Cancelado</option>
+                      </select>
 
-                      <div className="mobile-stock-control-wrapper">
-                        <button
-                          type="button"
-                          onClick={() => handleCambiarStockRapido(prod, -1)}
-                          disabled={stockActual <= 0}
-                          className="mobile-stock-btn"
-                          title="Restar 1 unidad"
-                        >
-                          <Minus size={15} color={stockActual <= 0 ? '#94A3B8' : '#0F172A'} />
-                        </button>
-
-                        <span className={estaAgotado ? 'mobile-stock-pill-agotado' : 'mobile-stock-pill-ok'}>
-                          {estaAgotado ? '0 u. Agotado' : `${stockActual} u.`}
+                      <button
+                        type="button"
+                        onClick={() => setPedidoDetalleModal(ped)}
+                        className="btn-ver-items"
+                        title="Ver detalles e ítems del pedido"
+                      >
+                        <Eye size={15} strokeWidth={2.2} />
+                        <span>Ver ítems</span>
+                        <span className="btn-ver-items-count">
+                          {ped.pedido_items?.length || 0}
                         </span>
-
-                        <button
-                          type="button"
-                          onClick={() => handleCambiarStockRapido(prod, 1)}
-                          className="mobile-stock-btn"
-                          title="Sumar 1 unidad"
-                        >
-                          <Plus size={15} color="#0F172A" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Fila de Acciones táctiles */}
-                    <div className="mobile-actions-row">
-                      <button
-                        type="button"
-                        onClick={() => handleEditarProducto(prod)}
-                        className="mobile-action-btn-white"
-                      >
-                        <Edit size={14} color="#0F172A" />
-                        <span>Editar</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleToggleDisponible(prod)}
-                        className="mobile-action-btn-white"
-                      >
-                        <Eye size={14} color="#0F172A" />
-                        <span>{prod.disponible ? 'Ocultar' : 'Activar'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleEliminarProducto(prod.id)}
-                        className="mobile-action-btn-danger"
-                      >
-                        <Trash2 size={14} color="#E11D48" />
-                        <span>Eliminar</span>
                       </button>
                     </div>
                   </div>
-                )
-              })}
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ================================================================
+            PESTAÑA 3: REPORTES FINANCIEROS
+        ================================================================ */}
+        {tabActiva === 'finanzas' && (
+          <section style={styles.cardSection} className="section-card-responsive">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+              <div style={styles.gridIconBox}>
+                <TrendingUp size={20} color="#059669" />
+              </div>
+              <div>
+                <h2 style={styles.sectionTitle}>Reportes Financieros</h2>
+                <p style={{ margin: 0, fontSize: 13, color: '#64748B' }}>
+                  Ingresos acumulados exclusivamente por pedidos marcados como <strong>Pagados</strong>
+                </p>
+              </div>
             </div>
-          )}
-        </section>
+
+            {/* 3 TARJETAS KPI PRINCIPALES */}
+            <div style={styles.finanzasGrid}>
+              {/* Semana */}
+              <div style={styles.kpiCard}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <span style={styles.kpiLabel}>Ingresos de la Semana</span>
+                  <div style={{ width: 38, height: 38, borderRadius: 12, background: '#ECFDF5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#059669' }}>
+                    <Calendar size={18} />
+                  </div>
+                </div>
+                <h3 style={styles.kpiMonto}>
+                  ${ingresosReportes.semana.toFixed(2)}
+                </h3>
+                <span style={styles.kpiSub}>Últimos 7 días corridos</span>
+              </div>
+
+              {/* Mes */}
+              <div style={styles.kpiCard}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <span style={styles.kpiLabel}>Ingresos del Mes</span>
+                  <div style={{ width: 38, height: 38, borderRadius: 12, background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563EB' }}>
+                    <DollarSign size={18} />
+                  </div>
+                </div>
+                <h3 style={styles.kpiMonto}>
+                  ${ingresosReportes.mes.toFixed(2)}
+                </h3>
+                <span style={styles.kpiSub}>Mes calendario en curso</span>
+              </div>
+
+              {/* Año */}
+              <div style={styles.kpiCard}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <span style={styles.kpiLabel}>Ingresos del Año</span>
+                  <div style={{ width: 38, height: 38, borderRadius: 12, background: '#FDF2F8', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#DB2777' }}>
+                    <TrendingUp size={18} />
+                  </div>
+                </div>
+                <h3 style={styles.kpiMonto}>
+                  ${ingresosReportes.anio.toFixed(2)}
+                </h3>
+                <span style={styles.kpiSub}>Año en curso</span>
+              </div>
+            </div>
+
+            {/* METRICAS SECUNDARIAS */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginTop: 18 }}>
+              <div style={styles.kpiMiniCard}>
+                <span style={styles.kpiMiniLabel}>Ventas Totales Pagadas</span>
+                <strong style={styles.kpiMiniVal}>{pedidosPagados.length} pedidos</strong>
+              </div>
+              <div style={styles.kpiMiniCard}>
+                <span style={styles.kpiMiniLabel}>Ticket Promedio</span>
+                <strong style={styles.kpiMiniVal}>${ingresosReportes.ticketPromedio.toFixed(2)}</strong>
+              </div>
+              <div style={styles.kpiMiniCard}>
+                <span style={styles.kpiMiniLabel}>Total Histórico Cobrado</span>
+                <strong style={{ ...styles.kpiMiniVal, color: '#0F766E' }}>${ingresosReportes.historico.toFixed(2)}</strong>
+              </div>
+              <div style={styles.kpiMiniCard}>
+                <span style={styles.kpiMiniLabel}>Pendiente por Cobrar</span>
+                <strong style={{ ...styles.kpiMiniVal, color: '#D97706' }}>
+                  ${pedidos.filter(p => p.estado === 'pendiente').reduce((s, p) => s + Number(p.total || 0), 0).toFixed(2)}
+                </strong>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ================================================================
+            PESTAÑA 4: VALORACIONES (AGRUPADAS POR PRODUCTO CON ACORDEÓN)
+        ================================================================ */}
+        {tabActiva === 'valoraciones' && (
+          <section style={styles.cardSection} className="section-card-responsive">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={styles.gridIconBox}>
+                  <Star size={20} color="#D97706" />
+                </div>
+                <div>
+                  <h2 style={styles.sectionTitle}>Valoraciones y Reseñas</h2>
+                  <p style={{ margin: 0, fontSize: 13, color: '#64748B' }}>
+                    Opiniones y calificaciones recibidas agrupadas por producto
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={cargarValoraciones}
+                style={styles.btnSecundario}
+                title="Actualizar valoraciones"
+              >
+                <RefreshCw size={15} />
+                <span>Actualizar</span>
+              </button>
+            </div>
+
+            {/* Tarjeta de promedio general */}
+            <div style={{ background: '#FFFBEB', border: '1px solid #FEF3C7', borderRadius: 16, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 20, marginBottom: 24, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <span style={{ fontSize: 32, fontWeight: 800, color: '#B45309' }}>
+                  {promedioValoraciones}
+                </span>
+                <span style={{ fontSize: 15, color: '#92400E', fontWeight: 600 }}>/ 5</span>
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', gap: 3, marginBottom: 4 }}>
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <Star
+                      key={s}
+                      size={17}
+                      fill={s <= Math.round(promedioValoraciones) ? '#F59E0B' : 'transparent'}
+                      color={s <= Math.round(promedioValoraciones) ? '#F59E0B' : '#CBD5E1'}
+                    />
+                  ))}
+                </div>
+                <span style={{ fontSize: 13, color: '#78350F', fontWeight: 500 }}>
+                  Promedio general basado en {valoraciones.length} {valoraciones.length === 1 ? 'reseña' : 'reseñas'} de {productosConValoraciones.length} {productosConValoraciones.length === 1 ? 'producto calificado' : 'productos calificados'}
+                </span>
+              </div>
+            </div>
+
+            {cargandoValoraciones && <p style={styles.hintTxt}>Cargando valoraciones...</p>}
+            {errorValoraciones && <p style={styles.errorTxt}>Error al cargar valoraciones: {errorValoraciones}</p>}
+
+            {!cargandoValoraciones && productosConValoraciones.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '40px 16px', background: '#F8FAFC', borderRadius: 16, border: '1px dashed #CBD5E1' }}>
+                <Star size={36} color="#CBD5E1" style={{ margin: '0 auto 10px' }} />
+                <h4 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: '#0F172A' }}>
+                  Aún no hay valoraciones
+                </h4>
+                <p style={{ margin: 0, fontSize: 13, color: '#64748B' }}>
+                  Tus clientes podrán calificar tus productos directamente desde el catálogo público.
+                </p>
+              </div>
+            )}
+
+            {/* Listado de Productos Agrupados (Accordion) */}
+            {productosConValoraciones.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {productosConValoraciones.map((prod) => {
+                  const estaExpandido = Boolean(productosValoracionesExpandidos[prod.id])
+
+                  return (
+                    <div
+                      key={prod.id}
+                      style={{
+                        background: '#FFFFFF',
+                        border: estaExpandido ? '1px solid #0F766E' : '1px solid #E2E8F0',
+                        borderRadius: 16,
+                        overflow: 'hidden',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                        transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+                      }}
+                    >
+                      {/* Vista Resumen (Cerrada / Cabecera clickeable) */}
+                      <button
+                        type="button"
+                        onClick={() => toggleExpandirProducto(prod.id)}
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '16px 20px',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          fontFamily: 'inherit',
+                          gap: 12,
+                        }}
+                      >
+                        {/* Nombre del Producto */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                          <div style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 8,
+                            background: '#ECFDF5',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#0F766E',
+                            flexShrink: 0,
+                          }}>
+                            <ShoppingBag size={16} />
+                          </div>
+                          <span style={{ fontSize: 15, fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {prod.nombre}
+                          </span>
+                        </div>
+
+                        {/* Promedio de estrellas + Total de reseñas + Chevron */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+                          {/* Estrellitas según el promedio individual */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <div style={{ display: 'flex', gap: 2 }}>
+                              {[1, 2, 3, 4, 5].map((s) => (
+                                <Star
+                                  key={s}
+                                  size={15}
+                                  fill={s <= Math.round(prod.promedio) ? '#F59E0B' : 'transparent'}
+                                  color={s <= Math.round(prod.promedio) ? '#F59E0B' : '#E2E8F0'}
+                                />
+                              ))}
+                            </div>
+                            <strong style={{ fontSize: 14, color: '#B45309', marginLeft: 2 }}>
+                              {prod.promedio}
+                            </strong>
+                          </div>
+
+                          <span style={{ fontSize: 13, color: '#64748B', fontWeight: 500 }}>
+                            ({prod.cantidad} {prod.cantidad === 1 ? 'reseña' : 'reseñas'})
+                          </span>
+
+                          <div style={{
+                            transform: estaExpandido ? 'rotate(180deg)' : 'rotate(0deg)',
+                            transition: 'transform 0.2s ease',
+                            color: '#64748B',
+                            display: 'flex',
+                            alignItems: 'center',
+                          }}>
+                            <ChevronDown size={18} />
+                          </div>
+                        </div>
+                      </button>
+
+                      {/* Vista Expandida (Al hacer clic) */}
+                      {estaExpandido && (
+                        <div
+                          className="admin-accordion-content"
+                          style={{
+                            borderTop: '1px solid #F1F5F9',
+                            background: '#F8FAFC',
+                            padding: '18px 20px',
+                            display: 'flex',
+                            flexDirection: 'row',
+                            gap: 20,
+                            alignItems: 'flex-start',
+                          }}
+                        >
+                          {/* Imagen del Producto a la izquierda */}
+                          <div style={{ flexShrink: 0 }}>
+                            {prod.imagen_url ? (
+                              <img
+                                src={prod.imagen_url}
+                                alt={prod.nombre}
+                                style={{
+                                  width: 96,
+                                  height: 96,
+                                  borderRadius: 14,
+                                  objectFit: 'cover',
+                                  border: '1px solid #E2E8F0',
+                                  boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
+                                }}
+                                onError={(e) => { e.currentTarget.style.display = 'none' }}
+                              />
+                            ) : (
+                              <div style={{
+                                width: 96,
+                                height: 96,
+                                borderRadius: 14,
+                                background: '#E2E8F0',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#94A3B8',
+                                fontSize: 12,
+                                fontWeight: 600,
+                              }}>
+                                📷 Sin foto
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Lista de reseñas individuales */}
+                          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Reseñas de clientes ({prod.valoraciones.length})
+                              </h4>
+                              <span style={{ fontSize: 12, color: '#0F766E', fontWeight: 600 }}>
+                                Promedio: {prod.promedio} / 5
+                              </span>
+                            </div>
+
+                            <div
+                              className="max-h-96 overflow-y-auto pr-2"
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 8,
+                                maxHeight: 380,
+                                overflowY: 'auto',
+                                paddingRight: 8,
+                              }}
+                            >
+                              {prod.valoraciones.map((v) => (
+                                <div
+                                  key={v.id}
+                                  style={{
+                                    background: '#FFFFFF',
+                                    border: '1px solid #E2E8F0',
+                                    borderRadius: 12,
+                                    padding: '12px 14px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 6,
+                                  }}
+                                >
+                                  {/* Cabecera de la reseña: Nombre + Fecha */}
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                      <div style={{
+                                        width: 26,
+                                        height: 26,
+                                        borderRadius: '50%',
+                                        background: '#E2E8F0',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        color: '#475569',
+                                      }}>
+                                        {(v.nombre_cliente || 'C').charAt(0).toUpperCase()}
+                                      </div>
+                                      <strong style={{ fontSize: 13, color: '#0F172A' }}>
+                                        {v.nombre_cliente || 'Cliente anónimo'}
+                                      </strong>
+                                    </div>
+
+                                    <span style={{ fontSize: 11, color: '#94A3B8' }}>
+                                      {formatearFechaHora(v.created_at)}
+                                    </span>
+                                  </div>
+
+                                  {/* Estrellas individuales */}
+                                  <div style={{ display: 'flex', gap: 2 }}>
+                                    {[1, 2, 3, 4, 5].map((s) => (
+                                      <Star
+                                        key={s}
+                                        size={13}
+                                        fill={s <= v.calificacion ? '#F59E0B' : 'transparent'}
+                                        color={s <= v.calificacion ? '#F59E0B' : '#E2E8F0'}
+                                      />
+                                    ))}
+                                    <span style={{ fontSize: 11, fontWeight: 700, color: '#D97706', marginLeft: 4 }}>
+                                      {v.calificacion}/5
+                                    </span>
+                                  </div>
+
+                                  {/* Comentario */}
+                                  {v.comentario && (
+                                    <p style={{ margin: 0, fontSize: 13, color: '#334155', lineHeight: 1.45, fontStyle: 'italic' }}>
+                                      "{v.comentario}"
+                                    </p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+        )}
       </main>
 
       {/* ================================================================
@@ -1362,6 +2274,122 @@ export default function AdminPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================
+          MODAL: DETALLES DEL PEDIDO E ÍTEMS COMPRADOS
+      ================================================================ */}
+      {pedidoDetalleModal && (
+        <div style={styles.modalBackdrop} onClick={() => setPedidoDetalleModal(null)}>
+          <div style={{ ...styles.modalCard, maxWidth: 540 }} className="modal-card-responsive" onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHead}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: '#ECFDF5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0F766E' }}>
+                  <ShoppingBag size={18} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#0F172A' }}>
+                    Detalle del Pedido
+                  </h3>
+                  <span style={{ fontSize: 11, color: '#64748B' }}>
+                    ID: {pedidoDetalleModal.id}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPedidoDetalleModal(null)}
+                style={styles.modalCloseIcon}
+              >
+                <X size={18} color="#64748B" />
+              </button>
+            </div>
+
+            {/* Info del Cliente */}
+            <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 14, padding: '12px 16px', margin: '14px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', display: 'block', textTransform: 'uppercase' }}>Cliente</span>
+                <strong style={{ fontSize: 15, color: '#0F172A' }}>{pedidoDetalleModal.nombre_cliente}</strong>
+                {pedidoDetalleModal.telefono_cliente && (
+                  <span style={{ display: 'block', fontSize: 12, color: '#475569', marginTop: 2 }}>
+                    Notas/Tel: {pedidoDetalleModal.telefono_cliente}
+                  </span>
+                )}
+                <span style={{ display: 'block', fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
+                  {formatearFechaHora(pedidoDetalleModal.created_at)}
+                </span>
+              </div>
+
+              <div>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', display: 'block', textTransform: 'uppercase', marginBottom: 4 }}>Estado</span>
+                <select
+                  value={pedidoDetalleModal.estado}
+                  disabled={actualizandoEstadoId === pedidoDetalleModal.id}
+                  onChange={(e) => handleCambiarEstadoPedido(pedidoDetalleModal.id, e.target.value)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 20,
+                    fontWeight: '700',
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    outline: 'none',
+                    ...getEstadoStyle(pedidoDetalleModal.estado),
+                  }}
+                >
+                  <option value="pendiente">⏳ Pendiente</option>
+                  <option value="pagado">✓ Pagado</option>
+                  <option value="cancelado">✕ Cancelado</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Lista de Items */}
+            <h4 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 700, color: '#0F172A' }}>
+              Productos incluidos ({pedidoDetalleModal.pedido_items?.length || 0}):
+            </h4>
+
+            <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+              {(!pedidoDetalleModal.pedido_items || pedidoDetalleModal.pedido_items.length === 0) ? (
+                <p style={{ color: '#94A3B8', fontSize: 13, textAlign: 'center', padding: 16 }}>Sin productos registrados.</p>
+              ) : (
+                pedidoDetalleModal.pedido_items.map((it) => (
+                  <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 12 }}>
+                    {it.productos?.imagen_url ? (
+                      <img
+                        src={it.productos.imagen_url}
+                        alt={it.productos.nombre}
+                        style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <div style={{ width: 40, height: 40, borderRadius: 8, background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94A3B8' }}>
+                        📷
+                      </div>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <strong style={{ fontSize: 13, color: '#0F172A', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {it.productos?.nombre || `Producto #${it.producto_id}`}
+                      </strong>
+                      <span style={{ fontSize: 12, color: '#64748B' }}>
+                        {it.cantidad} {it.cantidad === 1 ? 'unidad' : 'unidades'} × ${Number(it.precio_unitario).toFixed(2)}
+                      </span>
+                    </div>
+                    <strong style={{ fontSize: 14, color: '#0F766E' }}>
+                      ${(Number(it.cantidad) * Number(it.precio_unitario)).toFixed(2)}
+                    </strong>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Total */}
+            <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: '#64748B' }}>Total del Pedido:</span>
+              <span style={{ fontSize: 24, fontWeight: 800, color: '#0F766E' }}>
+                ${Number(pedidoDetalleModal.total || 0).toFixed(2)}
+              </span>
+            </div>
           </div>
         </div>
       )}
@@ -1913,6 +2941,11 @@ const styles = {
     color: '#64748B',
     borderBottom: '1px solid #E2E8F0',
     whiteSpace: 'nowrap',
+    position: 'sticky',
+    top: 0,
+    background: '#FFFFFF',
+    zIndex: 10,
+    boxShadow: '0 1px 0 #E2E8F0',
   },
   tr: {
     borderBottom: '1px solid #F1F5F9',
@@ -2021,6 +3054,19 @@ const styles = {
   },
 
   // Botones de Acción
+  actionBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 7,
+    padding: '6px 14px',
+    background: '#F0FDFA',
+    color: '#0F766E',
+    border: '1px solid #CCFBF1',
+    borderRadius: 12,
+    fontSize: 13,
+    fontWeight: '600',
+    cursor: 'pointer',
+  },
   actionBtnWhite: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -2139,5 +3185,248 @@ const styles = {
     width: '100%',
     boxSizing: 'border-box',
     border: 'none',
+  },
+
+  // --- Tabs de Navegación Admin ---
+  tabsContainer: {
+    display: 'flex',
+    gap: 8,
+    marginBottom: 20,
+    background: '#FFFFFF',
+    padding: '8px',
+    borderRadius: 16,
+    border: '1px solid #E2E8F0',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+  },
+  tabNavBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '10px 18px',
+    background: 'transparent',
+    color: '#64748B',
+    border: 'none',
+    borderRadius: 12,
+    fontSize: 13,
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+    whiteSpace: 'nowrap',
+    fontFamily: 'inherit',
+  },
+  tabNavBtnActivo: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '10px 18px',
+    background: '#0F766E',
+    color: '#FFFFFF',
+    border: 'none',
+    borderRadius: 12,
+    fontSize: 13,
+    fontWeight: '700',
+    cursor: 'pointer',
+    boxShadow: '0 2px 8px rgba(15, 118, 110, 0.25)',
+    whiteSpace: 'nowrap',
+    fontFamily: 'inherit',
+  },
+  badgeTabPendiente: {
+    background: '#EF4444',
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+    padding: '2px 7px',
+    borderRadius: 999,
+  },
+  badgeTabNeutral: {
+    background: '#E2E8F0',
+    color: '#0F172A',
+    fontSize: 11,
+    fontWeight: '700',
+    padding: '2px 7px',
+    borderRadius: 999,
+  },
+
+  // --- Filtros de Pedidos ---
+  filtroChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '6px 14px',
+    background: '#FFFFFF',
+    color: '#475569',
+    border: '1px solid #CBD5E1',
+    borderRadius: 20,
+    fontSize: 12,
+    fontWeight: '600',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  filtroChipActivo: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '6px 14px',
+    background: '#0F766E',
+    color: '#FFFFFF',
+    border: '1px solid #0F766E',
+    borderRadius: 20,
+    fontSize: 12,
+    fontWeight: '700',
+    cursor: 'pointer',
+    boxShadow: '0 2px 4px rgba(15,118,110,0.2)',
+    fontFamily: 'inherit',
+  },
+  inputBusquedaSimple: {
+    width: '100%',
+    padding: '8px 12px',
+    background: '#FFFFFF',
+    border: '1px solid #CBD5E1',
+    borderRadius: 10,
+    fontSize: 13,
+    color: '#0F172A',
+    outline: 'none',
+    boxSizing: 'border-box',
+    fontFamily: 'inherit',
+  },
+
+  // --- Dashboard Finanzas ---
+  finanzasGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+    gap: 16,
+  },
+  kpiCard: {
+    background: '#FFFFFF',
+    border: '1px solid #E2E8F0',
+    borderRadius: 18,
+    padding: '20px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+  },
+  kpiLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  kpiMonto: {
+    margin: '4px 0 6px',
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: '-0.5px',
+  },
+  kpiSub: {
+    fontSize: 12,
+    color: '#94A3B8',
+  },
+  kpiMiniCard: {
+    background: '#F8FAFC',
+    border: '1px solid #E2E8F0',
+    borderRadius: 14,
+    padding: '14px 16px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+  },
+  kpiMiniLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  kpiMiniVal: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+
+  // --- Dropdown Notificaciones ---
+  notifDropdown: {
+    position: 'absolute',
+    top: 'calc(100% + 10px)',
+    right: 0,
+    width: 320,
+    background: '#FFFFFF',
+    border: '1px solid #E2E8F0',
+    borderRadius: 18,
+    boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.06)',
+    zIndex: 60,
+    overflow: 'hidden',
+  },
+  notifHeader: {
+    padding: '14px 16px',
+    background: '#F8FAFC',
+    borderBottom: '1px solid #F1F5F9',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  notifBadge: {
+    background: '#FEF3C7',
+    color: '#92400E',
+    border: '1px solid #FDE68A',
+    fontSize: 11,
+    fontWeight: '700',
+    padding: '2px 8px',
+    borderRadius: 999,
+  },
+  notifVacio: {
+    padding: '28px 20px',
+    textAlign: 'center',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notifVacioIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    background: '#F1F5F9',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  notifItem: {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    padding: '12px 16px',
+    background: 'none',
+    border: 'none',
+    borderBottom: '1px solid #F1F5F9',
+    cursor: 'pointer',
+    transition: 'background 0.15s ease',
+    fontFamily: 'inherit',
+    boxSizing: 'border-box',
+    textDecoration: 'none',
+  },
+  notifItemIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    background: '#FEF3C7',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  notifFooter: {
+    padding: '10px 16px',
+    background: '#F8FAFC',
+    borderTop: '1px solid #F1F5F9',
+    textAlign: 'center',
+  },
+  notifVerTodosBtn: {
+    background: 'none',
+    border: 'none',
+    color: '#0F766E',
+    fontSize: 12,
+    fontWeight: '700',
+    cursor: 'pointer',
+    padding: '4px 8px',
+    borderRadius: 6,
+    fontFamily: 'inherit',
   },
 }
