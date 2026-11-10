@@ -1141,7 +1141,7 @@ export default function AdminPage() {
         {/* ================================================================
             4. SECCIÓN INVENTARIO DE PRODUCTOS
         ================================================================ */}
-        <section style={styles.cardSection}>
+        <section style={styles.cardSection} className="section-card-responsive">
           <div style={styles.sectionHeaderBetween}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Package size={20} color="#059669" />
@@ -1158,6 +1158,7 @@ export default function AdminPage() {
                 }
               }}
               style={styles.btnNuevoProducto}
+              className="btn-nuevo-producto-responsive"
             >
               <Plus size={16} color="#FFFFFF" />
               <span>{formAbierto ? 'Cerrar formulario' : 'Nuevo producto'}</span>
@@ -1325,10 +1326,10 @@ export default function AdminPage() {
             </p>
           )}
 
-          {/* TABLA DE PRODUCTOS */}
+          {/* TABLA DE PRODUCTOS (DESKTOP / TABLETS) */}
           {productosFiltrados.length > 0 && (
             <div
-              className="max-h-[500px] overflow-y-auto pr-2"
+              className="hidden md:block max-h-[500px] overflow-y-auto pr-2"
               style={{
                 overflowX: 'auto',
                 overflowY: 'auto',
@@ -1475,6 +1476,119 @@ export default function AdminPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* VISTA MÓVIL: TARJETAS INDIVIDUALES DE PRODUCTOS (TELÉFONOS) */}
+          {productosFiltrados.length > 0 && (
+            <div
+              className="flex flex-col gap-4 md:hidden max-h-[500px] overflow-y-auto pr-2"
+              style={{
+                maxHeight: '500px',
+                overflowY: 'auto',
+                paddingRight: '8px',
+                marginTop: 12,
+              }}
+            >
+              {productosFiltrados.map((prod) => {
+                const catNombre = categorias.find((c) => c.id === prod.categoria_id)?.nombre || '—'
+                const stockActual = prod.stock ?? 0
+                const estaAgotado = stockActual <= 0
+
+                return (
+                  <div key={prod.id} className="mobile-product-card">
+                    {/* Encabezado: Foto + Nombre + Categoría + Estado */}
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                      {prod.imagen_url ? (
+                        <img
+                          src={prod.imagen_url}
+                          alt={prod.nombre}
+                          className="mobile-product-thumb"
+                          onError={(e) => { e.currentTarget.style.display = 'none' }}
+                        />
+                      ) : (
+                        <div className="mobile-product-thumb-placeholder">📷</div>
+                      )}
+
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                          <h4 className="mobile-product-name">{prod.nombre}</h4>
+                          <span style={prod.disponible ? styles.estadoActivo : styles.estadoOculto}>
+                            {prod.disponible ? '● Activo' : '○ Oculto'}
+                          </span>
+                        </div>
+                        <span style={styles.categoryBadge}>{catNombre}</span>
+                        {prod.descripcion && (
+                          <p className="mobile-product-desc">{prod.descripcion}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Fila de Precio y Control de Stock táctil */}
+                    <div className="mobile-stock-row">
+                      <div>
+                        <span style={{ fontSize: 11, color: '#64748B', display: 'block', fontWeight: '600' }}>PRECIO:</span>
+                        <strong className="mobile-product-price">${Number(prod.precio).toFixed(2)}</strong>
+                      </div>
+
+                      <div className="mobile-stock-control-wrapper">
+                        <button
+                          type="button"
+                          onClick={() => handleCambiarStockRapido(prod, -1)}
+                          disabled={stockActual <= 0}
+                          className="mobile-stock-btn"
+                          title="Restar 1 unidad"
+                        >
+                          <Minus size={15} color={stockActual <= 0 ? '#94A3B8' : '#0F172A'} />
+                        </button>
+
+                        <span className={estaAgotado ? 'mobile-stock-pill-agotado' : 'mobile-stock-pill-ok'}>
+                          {estaAgotado ? '0 u. Agotado' : `${stockActual} u.`}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => handleCambiarStockRapido(prod, 1)}
+                          className="mobile-stock-btn"
+                          title="Sumar 1 unidad"
+                        >
+                          <Plus size={15} color="#0F172A" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Fila de Acciones táctiles */}
+                    <div className="mobile-actions-row">
+                      <button
+                        type="button"
+                        onClick={() => handleEditarProducto(prod)}
+                        className="mobile-action-btn-white"
+                      >
+                        <Edit size={14} color="#0F172A" />
+                        <span>Editar</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleToggleDisponible(prod)}
+                        className="mobile-action-btn-white"
+                      >
+                        <Eye size={14} color="#0F172A" />
+                        <span>{prod.disponible ? 'Ocultar' : 'Activar'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleEliminarProducto(prod.id)}
+                        className="mobile-action-btn-danger"
+                      >
+                        <Trash2 size={14} color="#E11D48" />
+                        <span>Eliminar</span>
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
         </section>

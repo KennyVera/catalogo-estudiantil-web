@@ -40,20 +40,66 @@ html, body {
   background: #94A3B8;
 }
 
-/* Visibilidad condicional Desktop vs Mobile */
+/* Visibilidad condicional Desktop vs Mobile (Tailwind-compatible y clases nativas) */
 .desktop-only {
   display: block;
 }
 .mobile-only {
-  display: none;
+  display: none !important;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.flex {
+  display: flex !important;
+}
+
+.flex-col {
+  flex-direction: column !important;
+}
+
+.gap-4 {
+  gap: 1rem !important;
+}
+
+@media (min-width: 768px) {
+  .md\:hidden {
+    display: none !important;
+  }
+  .md\:block,
+  .hidden.md\:block {
+    display: block !important;
+  }
+  .md\:table,
+  .hidden.md\:table {
+    display: table !important;
+  }
+  .md\:flex,
+  .hidden.md\:flex {
+    display: flex !important;
+  }
+  .desktop-only {
+    display: block !important;
+  }
+  .mobile-only {
+    display: none !important;
+  }
 }
 
 @media (max-width: 767px) {
+  .hidden {
+    display: none !important;
+  }
   .desktop-only {
     display: none !important;
   }
   .mobile-only {
     display: block !important;
+  }
+  .md\:hidden {
+    display: flex !important;
   }
 }
 
@@ -168,10 +214,20 @@ html, body {
     gap: 8px !important;
   }
 
+  .categoria-form-responsive > input {
+    width: 100% !important;
+  }
+
   .categoria-form-responsive > button {
     width: 100% !important;
     justify-content: center !important;
     padding: 12px !important;
+  }
+
+  .btn-nuevo-producto-responsive {
+    width: 100% !important;
+    justify-content: center !important;
+    padding: 12px 18px !important;
   }
 
   /* Modales en móvil */
