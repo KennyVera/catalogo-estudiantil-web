@@ -24,6 +24,8 @@ import {
 import {
   actualizarFotoPerfil,
   actualizarPassword,
+  subirLogoTienda,
+  actualizarConfiguracionTienda,
 } from '../services/tiendaService'
 import {
   getPedidosPorTienda,
@@ -67,6 +69,7 @@ import {
   Phone,
   AlertCircle,
   ArrowRight,
+  Settings,
 } from 'lucide-react'
 
 const PRODUCTO_INICIAL = {
@@ -111,6 +114,7 @@ export default function AdminPage() {
 
   const fileInputRef = useRef(null)
   const avatarInputRef = useRef(null)
+  const logoFileInputRef = useRef(null)
   const profileMenuRef = useRef(null)
   const notifMenuRef = useRef(null)
 
@@ -118,6 +122,18 @@ export default function AdminPage() {
   const [menuPerfilAbierto, setMenuPerfilAbierto] = useState(false)
   const [menuNotificacionesAbierto, setMenuNotificacionesAbierto] = useState(false)
   const [subiendoAvatar, setSubiendoAvatar] = useState(false)
+
+  // --- Modal Configuración de Tienda ---
+  const [modalConfiguracionAbierto, setModalConfiguracionAbierto] = useState(false)
+  const [formConfiguracion, setFormConfiguracion] = useState({
+    nombre_tienda: '',
+    telefono_whatsapp: '',
+    logo_url: '',
+  })
+  const [archivoLogo, setArchivoLogo] = useState(null)
+  const [previewLogo, setPreviewLogo] = useState('')
+  const [guardandoConfiguracion, setGuardandoConfiguracion] = useState(false)
+  const [msgConfiguracion, setMsgConfiguracion] = useState(null)
 
   // --- Modal cambiar contraseña ---
   const [modalPasswordAbierto, setModalPasswordAbierto] = useState(false)
@@ -482,6 +498,97 @@ export default function AdminPage() {
     }, 1800)
   }
 
+  // --- Handlers de Configuración de la Tienda ---
+  const abrirModalConfiguracion = () => {
+    let tel = (tienda?.telefono_whatsapp || '').trim()
+    if (tel.startsWith('593')) {
+      tel = tel.slice(3)
+    }
+    setFormConfiguracion({
+      nombre_tienda: tienda?.nombre_tienda || '',
+      telefono_whatsapp: tel,
+      logo_url: tienda?.logo_url || '',
+    })
+    setPreviewLogo(tienda?.logo_url || '')
+    setArchivoLogo(null)
+    setMsgConfiguracion(null)
+    setModalConfiguracionAbierto(true)
+  }
+
+  const handleSeleccionarLogo = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      alert('Por favor selecciona un archivo de imagen válido.')
+      return
+    }
+    setArchivoLogo(file)
+    setPreviewLogo(URL.createObjectURL(file))
+    setMsgConfiguracion(null)
+  }
+
+  const handleQuitarLogo = () => {
+    setArchivoLogo(null)
+    setPreviewLogo('')
+    setFormConfiguracion((prev) => ({ ...prev, logo_url: '' }))
+    if (logoFileInputRef.current) logoFileInputRef.current.value = ''
+  }
+
+  const handleGuardarConfiguracion = async (e) => {
+    e.preventDefault()
+    const nombreLimpio = formConfiguracion.nombre_tienda.trim()
+    if (!nombreLimpio) {
+      setMsgConfiguracion({ tipo: 'error', texto: 'El nombre del negocio es obligatorio.' })
+      return
+    }
+
+    setGuardandoConfiguracion(true)
+    setMsgConfiguracion(null)
+
+    try {
+      let finalLogoUrl = formConfiguracion.logo_url?.trim() || null
+
+      if (archivoLogo) {
+        const { publicUrl, error: uploadErr } = await subirLogoTienda(tienda.id, archivoLogo)
+        if (uploadErr) {
+          throw new Error('Error al subir el logo: ' + (uploadErr.message || 'Intenta con otra imagen.'))
+        }
+        if (publicUrl) {
+          finalLogoUrl = publicUrl
+        }
+      }
+
+      // Normalizar número telefónico
+      let celular = formConfiguracion.telefono_whatsapp.replace(/\D/g, '')
+      if (celular.startsWith('593')) celular = celular.slice(3)
+      if (celular.startsWith('0')) celular = celular.slice(1)
+      const telFinal = celular ? `593${celular}` : (tienda?.telefono_whatsapp || null)
+
+      const payload = {
+        nombre_tienda: nombreLimpio,
+        telefono_whatsapp: telFinal,
+        logo_url: finalLogoUrl,
+      }
+
+      const { data, error } = await actualizarConfiguracionTienda(tienda.id, payload)
+      if (error) {
+        throw error
+      }
+
+      actualizarDatosTienda(data || payload)
+
+      setMsgConfiguracion({ tipo: 'exito', texto: '✓ ¡Configuración guardada correctamente!' })
+      setTimeout(() => {
+        setModalConfiguracionAbierto(false)
+        setMsgConfiguracion(null)
+      }, 1000)
+    } catch (err) {
+      setMsgConfiguracion({ tipo: 'error', texto: err.message || 'Error al guardar la configuración.' })
+    } finally {
+      setGuardandoConfiguracion(false)
+    }
+  }
+
   // =====================================================
   // Handlers de Categorías
   // =====================================================
@@ -685,15 +792,33 @@ export default function AdminPage() {
         onChange={handleSeleccionarAvatar}
       />
 
+      {/* Input invisible para subir logo de la tienda */}
+      <input
+        ref={logoFileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleSeleccionarLogo}
+      />
+
       {/* ================================================================
           1. BARRA SUPERIOR (NAVBAR)
       ================================================================ */}
       <header style={styles.navbar}>
         <div style={styles.navContainer} className="nav-container-responsive">
-          {/* Nombre de la Tienda */}
+          {/* Nombre y Logo de la Tienda */}
           <div style={styles.storeBranding}>
-            <div style={styles.storeIconBox}>
-              <Store size={20} color="#0F766E" />
+            <div style={styles.storeIconBox} title={tienda?.nombre_tienda || 'Logo de la tienda'}>
+              {tienda?.logo_url ? (
+                <img
+                  src={tienda.logo_url}
+                  alt={tienda?.nombre_tienda || 'Logo'}
+                  style={styles.storeLogoImg}
+                  onError={(e) => { e.currentTarget.style.display = 'none' }}
+                />
+              ) : (
+                <Store size={26} color="#0F766E" strokeWidth={2.2} />
+              )}
             </div>
             <span style={styles.storeNameText} className="nav-store-name">
               {tienda?.nombre_tienda || 'Mi Tienda'}
@@ -839,6 +964,18 @@ export default function AdminPage() {
                     <p style={{ margin: 0, fontWeight: '700', fontSize: 14, color: '#0F172A' }}>{nombreAdmin}</p>
                     <span style={{ fontSize: 12, color: '#64748B' }}>Panel de Control</span>
                   </div>
+
+                  <button
+                    type="button"
+                    style={styles.dropdownItem}
+                    onClick={() => {
+                      setMenuPerfilAbierto(false)
+                      abrirModalConfiguracion()
+                    }}
+                  >
+                    <Settings size={16} color="#0F766E" />
+                    <span>Configuraciones</span>
+                  </button>
 
                   <button
                     type="button"
@@ -2507,6 +2644,211 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      {/* ================================================================
+          MODAL: CONFIGURACIÓN DE LA TIENDA (Nombre, WhatsApp, Logo)
+      ================================================================ */}
+      {modalConfiguracionAbierto && (
+        <div style={styles.modalBackdrop} onClick={() => setModalConfiguracionAbierto(false)}>
+          <div
+            style={{ ...styles.modalCard, maxWidth: 480 }}
+            className="modal-card-responsive"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header del modal */}
+            <div style={styles.modalHead}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: '#ECFDF5', border: '1px solid #A7F3D0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0F766E' }}>
+                  <Settings size={22} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 18, fontWeight: '800', color: '#0F172A' }}>
+                    Configuración de la Tienda
+                  </h3>
+                  <span style={{ fontSize: 12, color: '#64748B' }}>
+                    Personaliza la identidad y contacto de tu negocio
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalConfiguracionAbierto(false)}
+                style={styles.modalCloseIcon}
+                title="Cerrar"
+              >
+                <X size={18} color="#64748B" />
+              </button>
+            </div>
+
+            <form onSubmit={handleGuardarConfiguracion} style={{ marginTop: 16 }}>
+              {/* 1. Logo de la tienda */}
+              <div style={{ marginBottom: 18 }}>
+                <label style={styles.formLabel}>Logo del negocio</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 6 }}>
+                  {/* Vista previa del logo */}
+                  <div style={{
+                    width: 68,
+                    height: 68,
+                    borderRadius: 16,
+                    background: '#F8FAFC',
+                    border: '1.5px dashed #CBD5E1',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                    flexShrink: 0,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                  }}>
+                    {previewLogo ? (
+                      <img
+                        src={previewLogo}
+                        alt="Logo previa"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        onError={() => setPreviewLogo('')}
+                      />
+                    ) : (
+                      <Store size={30} color="#94A3B8" />
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => logoFileInputRef.current?.click()}
+                        style={styles.btnSecundarioSm}
+                      >
+                        <Camera size={14} color="#0F766E" />
+                        <span>{archivoLogo ? 'Cambiar archivo' : 'Subir imagen'}</span>
+                      </button>
+
+                      {(previewLogo || archivoLogo) && (
+                        <button
+                          type="button"
+                          onClick={handleQuitarLogo}
+                          style={{ ...styles.btnSecundarioSm, color: '#E11D48', borderColor: '#FECACA' }}
+                        >
+                          <Trash2 size={13} color="#E11D48" />
+                          <span>Quitar</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <span style={{ fontSize: 11, color: '#64748B' }}>
+                      {archivoLogo ? archivoLogo.name : 'PNG, JPG o WEBP recomendados (cuadrado).'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Input alternativo para URL directa */}
+                <input
+                  type="url"
+                  placeholder="O ingresa la URL de tu logo (https://...)"
+                  value={formConfiguracion.logo_url}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setFormConfiguracion((prev) => ({ ...prev, logo_url: val }))
+                    if (!archivoLogo) setPreviewLogo(val)
+                  }}
+                  style={{ ...styles.formInput, marginTop: 10, fontSize: 12 }}
+                />
+              </div>
+
+              {/* 2. Nombre del negocio */}
+              <div style={{ marginBottom: 14 }}>
+                <label style={styles.formLabel}>Nombre del negocio *</label>
+                <input
+                  type="text"
+                  value={formConfiguracion.nombre_tienda}
+                  onChange={(e) => setFormConfiguracion((prev) => ({ ...prev, nombre_tienda: e.target.value }))}
+                  placeholder="Ej: Prueba001 o Mi Tienda"
+                  style={styles.formInput}
+                  required
+                />
+              </div>
+
+              {/* 3. Número de WhatsApp para pedidos */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={styles.formLabel}>WhatsApp para pedidos *</label>
+                <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                  <span style={{
+                    padding: '10px 12px',
+                    background: '#F1F5F9',
+                    border: '1px solid #CBD5E1',
+                    borderRight: 'none',
+                    borderTopLeftRadius: 10,
+                    borderBottomLeftRadius: 10,
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: '#475569',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    🇪🇨 +593
+                  </span>
+                  <input
+                    type="tel"
+                    value={formConfiguracion.telefono_whatsapp}
+                    onChange={(e) => setFormConfiguracion((prev) => ({ ...prev, telefono_whatsapp: e.target.value }))}
+                    placeholder="0991234567"
+                    style={{
+                      ...styles.formInput,
+                      borderTopLeftRadius: 0,
+                      borderBottomLeftRadius: 0,
+                      flex: 1,
+                    }}
+                    required
+                  />
+                </div>
+                <span style={{ fontSize: 11, color: '#64748B', marginTop: 4, display: 'block' }}>
+                  A este número se enviarán los pedidos completados desde el carrito.
+                </span>
+              </div>
+
+              {/* Mensajes de feedback */}
+              {msgConfiguracion && (
+                <div style={{
+                  padding: '10px 14px',
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  marginBottom: 14,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  background: msgConfiguracion.tipo === 'exito' ? '#ECFDF5' : '#FEF2F2',
+                  color: msgConfiguracion.tipo === 'exito' ? '#065F46' : '#991B1B',
+                  border: `1px solid ${msgConfiguracion.tipo === 'exito' ? '#A7F3D0' : '#FECACA'}`,
+                }}>
+                  {msgConfiguracion.tipo === 'exito' ? (
+                    <CheckCircle2 size={16} color="#059669" />
+                  ) : (
+                    <AlertCircle size={16} color="#DC2626" />
+                  )}
+                  <span>{msgConfiguracion.texto}</span>
+                </div>
+              )}
+
+              {/* Botones de acción */}
+              <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+                <button
+                  type="submit"
+                  disabled={guardandoConfiguracion}
+                  style={styles.btnGuardarProducto}
+                >
+                  {guardandoConfiguracion ? 'Guardando cambios...' : '✓ Guardar Cambios'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModalConfiguracionAbierto(false)}
+                  style={styles.btnSecundario}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -2545,24 +2887,34 @@ const styles = {
   storeBranding: {
     display: 'flex',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
+    minWidth: 0,
   },
   storeIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    background: '#ECFDF5',
-    border: '1px solid #A7F3D0',
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    background: 'linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%)',
+    border: '1.5px solid #A7F3D0',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
+    boxShadow: '0 2px 6px rgba(15, 118, 110, 0.1)',
+    overflow: 'hidden',
+  },
+  storeLogoImg: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    borderRadius: 12,
   },
   storeNameText: {
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 24,
+    fontWeight: '900',
     color: '#0F172A',
-    letterSpacing: '-0.3px',
+    letterSpacing: '-0.5px',
+    lineHeight: 1.15,
   },
   navRight: {
     display: 'flex',

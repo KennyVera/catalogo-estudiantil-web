@@ -169,3 +169,63 @@ export async function actualizarPassword(tiendaId, nuevaPassword) {
   return { data, error }
 }
 
+/**
+ * Sube el logo de la tienda a Supabase Storage y retorna la URL pública.
+ * @param {number|string} tiendaId
+ * @param {File} file
+ */
+export async function subirLogoTienda(tiendaId, file) {
+  try {
+    const extension = file.name.split('.').pop()
+    const filePath = `logo-${tiendaId}-${Date.now()}.${extension}`
+
+    // Intentamos en bucket 'avatars' o 'productos'
+    let bucketName = 'avatars'
+    let uploadRes = await supabase.storage
+      .from(bucketName)
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: true,
+      })
+
+    if (uploadRes.error) {
+      bucketName = 'productos'
+      uploadRes = await supabase.storage
+        .from(bucketName)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true,
+        })
+    }
+
+    if (uploadRes.error) {
+      return { publicUrl: null, error: uploadRes.error }
+    }
+
+    const { data: urlData } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(filePath)
+
+    return { publicUrl: urlData.publicUrl, error: null }
+  } catch (err) {
+    return { publicUrl: null, error: err }
+  }
+}
+
+/**
+ * Actualiza los datos de configuración de la tienda (nombre, teléfono, logo_url).
+ * @param {number|string} tiendaId
+ * @param {{ nombre_tienda?: string, telefono_whatsapp?: string, logo_url?: string }} payload
+ */
+export async function actualizarConfiguracionTienda(tiendaId, payload) {
+  const { data, error } = await supabase
+    .from('tiendas')
+    .update(payload)
+    .eq('id', tiendaId)
+    .select()
+    .single()
+
+  return { data, error }
+}
+
+

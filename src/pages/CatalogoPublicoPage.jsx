@@ -722,6 +722,7 @@ export default function CatalogoPublicoPage() {
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(null)
+  const [logoError, setLogoError] = useState(false)
 
   // Resumen de valoraciones por producto: { [productoId]: { total, promedio } }
   const [resumenValoraciones, setResumenValoraciones] = useState({})
@@ -753,6 +754,7 @@ export default function CatalogoPublicoPage() {
     const cargar = async () => {
       setCargando(true)
       setError(null)
+      setLogoError(false)
 
       const { data: tiendaData, error: tiendaError } = await getTiendaPorSlug(slug)
       if (tiendaError || !tiendaData) {
@@ -937,20 +939,22 @@ export default function CatalogoPublicoPage() {
       {/* Cabecera / Hero de la tienda */}
       <div style={s.hero}>
         <div style={{
-          width: 64, height: 64, borderRadius: 20,
-          background: '#FFFFFF', border: '1px solid #E2E8F0',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.04)',
+          width: 68, height: 68, borderRadius: 20,
+          background: tienda?.logo_url && !logoError ? '#FFFFFF' : '#ECFDF5',
+          border: tienda?.logo_url && !logoError ? '1px solid #E2E8F0' : '1.5px solid #A7F3D0',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           margin: '0 auto 16px', overflow: 'hidden',
         }}>
-          {tienda.avatar_url ? (
+          {tienda?.logo_url && !logoError ? (
             <img
-              src={tienda.avatar_url}
-              alt={tienda.nombre_tienda}
+              src={tienda.logo_url}
+              alt={tienda.nombre_tienda || 'Logo de la tienda'}
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              onError={() => setLogoError(true)}
             />
           ) : (
-            <Store size={32} color="#0F766E" />
+            <Store size={32} color="#0F766E" strokeWidth={2.2} />
           )}
         </div>
         <h1 style={s.heroTitulo}>{tienda.nombre_tienda}</h1>
